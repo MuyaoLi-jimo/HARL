@@ -28,6 +28,8 @@ class OffPolicyHARunner(OffPolicyBaseRunner):
         ) = data
         # train critic
         self.critic.turn_on_grad()
+        
+        actor_train_infos = []          # list[dict]
         if self.args["algo"] == "hasac":
             next_actions = []
             next_logp_actions = []
@@ -42,7 +44,7 @@ class OffPolicyHARunner(OffPolicyBaseRunner):
                 )
                 next_actions.append(next_action)
                 next_logp_actions.append(next_logp_action)
-            self.critic.train(
+            critic_train_info = self.critic.train(
                 sp_share_obs,
                 sp_actions,
                 sp_reward,
@@ -61,7 +63,7 @@ class OffPolicyHARunner(OffPolicyBaseRunner):
                 next_actions.append(
                     self.actor[agent_id].get_target_actions(sp_next_obs[agent_id])
                 )
-            self.critic.train(
+            critic_train_info = self.critic.train(
                 sp_share_obs,
                 sp_actions,
                 sp_reward,
@@ -72,6 +74,8 @@ class OffPolicyHARunner(OffPolicyBaseRunner):
                 sp_gamma,
             )
         self.critic.turn_off_grad()
+        if critic_train_info is None:
+            critic_train_info = {}
         sp_valid_transition = torch.tensor(sp_valid_transition, device=self.device)
         if self.total_it % self.policy_freq == 0:
             # train actors
@@ -236,4 +240,14 @@ class OffPolicyHARunner(OffPolicyBaseRunner):
                 # soft update
                 for agent_id in range(self.num_agents):
                     self.actor[agent_id].soft_update()
+            
+            for agent_id in agent_order:
+                # 计算完 actor_loss
+                actor_train_infos.append({
+                    "agent": agent_id,
+                    "actor_loss": actor_loss.item()
+                })
+                if self.algo_args["algo"].get("auto_alpha", False):
+                    actor_train_infos[-1]["alpha_loss"] = alpha_loss.item()
             self.critic.soft_update()
+        return actor_train_infos,critic_train_info

@@ -20,6 +20,7 @@ from harl.algorithms.actors import ALGO_REGISTRY
 from harl.algorithms.critics import CRITIC_REGISTRY
 from harl.common.buffers.off_policy_buffer_ep import OffPolicyBufferEP
 from harl.common.buffers.off_policy_buffer_fp import OffPolicyBufferFP
+from harl.envs import LOGGER_REGISTRY
 
 
 class OffPolicyBaseRunner:
@@ -205,6 +206,10 @@ class OffPolicyBaseRunner:
                 self.alpha.append(torch.exp(_log_alpha.detach()))
         elif "alpha" in self.algo_args["algo"].keys():
             self.alpha = [self.algo_args["algo"]["alpha"]] * self.num_agents
+        
+        self.logger = LOGGER_REGISTRY[args["env"]](
+                args, algo_args, env_args, self.num_agents, self.writter, self.run_dir
+            )
 
     def run(self):
         """Run the training (or rendering) pipeline."""
@@ -216,7 +221,7 @@ class OffPolicyBaseRunner:
         )
         self.done_episodes_rewards = []
         # warmup
-        print("start warmup")
+        print("start warmup",self.algo_args["train"])
         obs, share_obs, available_actions = self.warmup()
         print("finish warmup, start training")
         # train and eval
@@ -228,7 +233,12 @@ class OffPolicyBaseRunner:
             self.algo_args["train"]["update_per_train"]
             * self.algo_args["train"]["train_interval"]
         )
+        self.logger.init(steps)  # logger callback at the beginning of training
         for step in range(1, steps + 1):
+            self.logger.episode_init(
+                step
+            )  # logger callback at the beginning of each episode
+            
             actions = self.get_actions(
                 obs, available_actions=available_actions, add_random=True
             )
@@ -243,6 +253,23 @@ class OffPolicyBaseRunner:
                 actions
             )  # rewards: (n_threads, n_agents, 1); dones: (n_threads, n_agents)
             # available_actions: (n_threads, ) of None or (n_threads, n_agents, action_number)
+            
+            log_data = (
+                new_obs,                # 0 obs
+                new_share_obs,          # 1 share_obs
+                rewards,                # 2 rewards
+                dones,                  # 3 dones
+                infos,                  # 4 infos
+                new_available_actions,  # 5 available_actions (或 None)
+                None,                   # 6 values  (off-policy 没有，填 None)
+                actions,                # 7 actions  (n_threads, n_agents, *)
+                None,                   # 8 action_log_probs
+                None,                   # 9 rnn_states
+                None,                   # 10 rnn_states_critic
+            )
+            
+            self.logger.per_step(log_data)
+            
             next_obs = new_obs.copy()
             next_share_obs = new_share_obs.copy()
             next_available_actions = new_available_actions.copy()
@@ -275,8 +302,21 @@ class OffPolicyBaseRunner:
                             self.actor[agent_id].lr_decay(step, steps)
                     self.critic.lr_decay(step, steps)
                 for _ in range(update_num):
-                    self.train()
+                    last_actor_infos,critic_train_info = self.train() 
+            
+                # log information
+                if step % self.algo_args["train"]["log_interval"] == 0:
+
+                    # 写入 TensorBoard
+                    self.logger.episode_log(
+                        last_actor_infos,          # list[dict]  每个 agent 的 actor_loss
+                        critic_train_info,          # dict        critic_loss
+                        self.buffer,      # 可以直接传
+                        self.buffer,      # logger只会用get_mean_rewards
+                    )
+            
             if step % self.algo_args["train"]["eval_interval"] == 0:
+                
                 cur_step = (
                     self.algo_args["train"]["warmup_steps"]
                     + step * self.algo_args["train"]["n_rollout_threads"]
@@ -302,6 +342,7 @@ class OffPolicyBaseRunner:
                         )
                         self.log_file.flush()
                         self.done_episodes_rewards = []
+                        
                 self.save()
 
     def warmup(self):
@@ -516,6 +557,7 @@ class OffPolicyBaseRunner:
     @torch.no_grad()
     def eval(self, step):
         """Evaluate the model"""
+        self.logger.eval_init()  # logger callback at the beginning of evaluation
         eval_episode_rewards = []
         one_episode_rewards = []
         for eval_i in range(self.algo_args["eval"]["n_eval_rollout_threads"]):
@@ -528,7 +570,7 @@ class OffPolicyBaseRunner:
             eval_score_cnt = 0
         episode_lens = []
         one_episode_len = np.zeros(
-            self.algo_args["eval"]["n_eval_rollout_threads"], dtype=np.int
+            self.algo_args["eval"]["n_eval_rollout_threads"], dtype=np.int32
         )
 
         eval_obs, eval_share_obs, eval_available_actions = self.eval_envs.reset()
@@ -545,6 +587,17 @@ class OffPolicyBaseRunner:
                 eval_infos,
                 eval_available_actions,
             ) = self.eval_envs.step(eval_actions)
+            eval_data = (
+                eval_obs,
+                eval_share_obs,
+                eval_rewards,
+                eval_dones,
+                eval_infos,
+                eval_available_actions,
+            )
+            self.logger.eval_per_step(
+                eval_data
+            )  # logger callback at each step of evaluation
             for eval_i in range(self.algo_args["eval"]["n_eval_rollout_threads"]):
                 one_episode_rewards[eval_i].append(eval_rewards[eval_i])
 
@@ -555,6 +608,7 @@ class OffPolicyBaseRunner:
             for eval_i in range(self.algo_args["eval"]["n_eval_rollout_threads"]):
                 if eval_dones_env[eval_i]:
                     eval_episode += 1
+                    
                     if "smac" in self.args["env"]:
                         if "v2" in self.args["env"]:
                             if eval_infos[eval_i][0]["battle_won"]:
@@ -571,6 +625,9 @@ class OffPolicyBaseRunner:
                     one_episode_rewards[eval_i] = []
                     episode_lens.append(one_episode_len[eval_i].copy())
                     one_episode_len[eval_i] = 0
+                    self.logger.eval_thread_done(
+                        eval_i
+                    )  # logger callback when an episode is done
 
             if eval_episode >= self.algo_args["eval"]["eval_episodes"]:
                 # eval_log returns whether the current model should be saved
@@ -595,6 +652,16 @@ class OffPolicyBaseRunner:
                     print(
                         f"Eval average episode reward is {eval_avg_rew}, eval average episode length is {eval_avg_len}.\n"
                     )
+                eval_info = {
+                    "eval_episode": eval_episode,
+                    "eval_avg_reward": eval_avg_rew,
+                    "eval_avg_len": eval_avg_len,
+                    "step": step,
+                }
+                self.logger.eval_log(
+                    eval_info,
+                )  # logger callback at the end of evaluation
+
                 if "smac" in self.args["env"]:
                     self.log_file.write(
                         ",".join(
@@ -744,3 +811,4 @@ class OffPolicyBaseRunner:
             self.writter.export_scalars_to_json(str(self.log_dir + "/summary.json"))
             self.writter.close()
             self.log_file.close()
+            self.logger.close()

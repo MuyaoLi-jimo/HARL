@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=0  python examples/train.py --load_config "/home/lmy/workspace/HARL/tuned_configs/lag/NoWeapon/happo/config.json"

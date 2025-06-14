@@ -22,6 +22,7 @@ class BaseEnv(gym.Env):
     def __init__(self, config_name: str):
         # basic args
         self.config = parse_config(config_name)
+        #from pdb import set_trace; set_trace()
         self.max_steps = getattr(self.config, 'max_steps', 100)  # type: int
         self.sim_freq = getattr(self.config, 'sim_freq', 60)  # type: int
         self.agent_interaction_steps = getattr(self.config, 'agent_interaction_steps', 12)  # type: int

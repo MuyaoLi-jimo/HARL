@@ -30,7 +30,7 @@ def main():
     parser.add_argument(
         "--env",
         type=str,
-        default="pettingzoo_mpe",
+        default="smac",
         choices=[
             "smac",
             "mamujoco",
@@ -86,7 +86,9 @@ def main():
     # start training
     from harl.runners import RUNNER_REGISTRY
 
-    runner = RUNNER_REGISTRY[args["algo"]](args, algo_args, env_args)
+    runner_maker = RUNNER_REGISTRY[args["algo"]]
+    runner = runner_maker(args, algo_args, env_args)
+    
     runner.run()
     runner.close()
 

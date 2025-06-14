@@ -238,3 +238,9 @@ class SoftTwinContinuousQCritic(TwinContinuousQCritic):
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
+        
+        return {
+            "critic_loss": critic_loss.item(),
+            "critic_loss1": critic_loss1.item(),
+            "critic_loss2": critic_loss2.item()
+        }

@@ -55,6 +55,7 @@ class OnPolicyBaseRunner:
                 algo_args["seed"]["seed"],
                 logger_path=algo_args["logger"]["log_dir"],
             )
+
             save_config(args, algo_args, env_args, self.run_dir)
         # set the title of the process
         setproctitle.setproctitle(
@@ -185,6 +186,7 @@ class OnPolicyBaseRunner:
         self.logger.init(episodes)  # logger callback at the beginning of training
 
         for episode in range(1, episodes + 1):
+            
             if self.algo_args["train"][
                 "use_linear_lr_decay"
             ]:  # linear decay of learning rate

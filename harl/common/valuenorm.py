@@ -23,7 +23,7 @@ class ValueNorm(nn.Module):
         self.epsilon = epsilon
         self.beta = beta
         self.per_element_update = per_element_update
-        self.tpdv = dict(dtype=torch.float32, device=device)
+        self.tpdv = dict(dtype=torch.float32, device=device) # torch parameter data vector
 
         self.running_mean = nn.Parameter(
             torch.zeros(input_shape), requires_grad=False

@@ -57,7 +57,7 @@
         },
         "render": {
             "render_episodes": 10,
-            "use_render": false
+            "use_render": true
         },
         "seed": {
             "seed": 1,
@@ -67,7 +67,7 @@
             "episode_length": 160,
             "eval_interval": 25,
             "log_interval": 5,
-            "model_dir": null,
+            "model_dir": "/home/lmy/workspace/HARL/results/smac/8m_vs_9m/happo/happo-smac-8m_vs_9m/seed-00001-2025-05-17-14-35-43/models",
             "n_rollout_threads": 20,
             "num_env_steps": 20000000,
             "use_linear_lr_decay": false,
