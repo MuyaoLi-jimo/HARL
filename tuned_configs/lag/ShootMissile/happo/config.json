@@ -36,12 +36,12 @@
         },
         "model": {
             "activation_func": "relu",
-            "critic_lr": 0.0005,
+            "critic_lr": 0.0010,
             "data_chunk_length": 10,
             "gain": 0.01,
             "hidden_sizes": [ 128,128 ],
             "initialization_method": "orthogonal_",
-            "lr": 0.0005,
+            "lr": 0.0010,
             "opti_eps": 1e-05,
             "recurrent_n": 1,
             "std_x_coef": 1,
@@ -51,9 +51,9 @@
             "use_recurrent_policy": true,
             "weight_decay": 0
         },
-        "render": {
-            "render_episodes": 10,
-            "use_render": false
+        "render":	{
+            "render_episodes":	3,
+            "use_render":	false
         },
         "seed": {
             "seed": 1,
@@ -63,10 +63,10 @@
             "episode_length": 160,
             "eval_interval": 25,
             "log_interval": 5,
-            "model_dir": null,
+            "model_dir": "",
             "n_rollout_threads": 100,
             "warmup_steps": 200000,
-            "num_env_steps": 20000000,
+            "num_env_steps": 1000000,
             "use_linear_lr_decay": false,
             "use_valuenorm": true,
             "use_proper_time_limits": true

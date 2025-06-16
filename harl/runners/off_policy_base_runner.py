@@ -1,9 +1,13 @@
 """Base runner for off-policy algorithms."""
 import os
+import shutil
 import time
 import torch
 import numpy as np
 import setproctitle
+import copy
+from rich import console
+from collections import deque
 from harl.common.valuenorm import ValueNorm
 from torch.distributions import Categorical
 from harl.utils.trans_tools import _t2n
@@ -45,7 +49,8 @@ class OffPolicyBaseRunner:
         self.state_type = env_args.get("state_type", "EP")
         self.share_param = algo_args["algo"]["share_param"]
         self.fixed_order = algo_args["algo"]["fixed_order"]
-
+        self.save_total_limit = algo_args["train"].get("save_total_limit",3)
+        self.save_idx_buffer = deque(maxlen=self.save_total_limit)
         set_seed(algo_args["seed"])
         self.device = init_device(algo_args["device"])
         self.task_name = get_task_name(args["env"], env_args)
@@ -213,6 +218,11 @@ class OffPolicyBaseRunner:
 
     def run(self):
         """Run the training (or rendering) pipeline."""
+        
+        self.eval_avg_rew_queue = deque(maxlen=1)
+        self.end_flag_queue = []
+        
+        
         if self.algo_args["render"]["use_render"]:  # render, not train
             self.render()
             return
@@ -234,11 +244,13 @@ class OffPolicyBaseRunner:
             * self.algo_args["train"]["train_interval"]
         )
         self.logger.init(steps)  # logger callback at the beginning of training
+        import time
         for step in range(1, steps + 1):
             self.logger.episode_init(
                 step
             )  # logger callback at the beginning of each episode
             
+            time_start = time.time()
             actions = self.get_actions(
                 obs, available_actions=available_actions, add_random=True
             )
@@ -253,6 +265,8 @@ class OffPolicyBaseRunner:
                 actions
             )  # rewards: (n_threads, n_agents, 1); dones: (n_threads, n_agents)
             # available_actions: (n_threads, ) of None or (n_threads, n_agents, action_number)
+            rollout_time_end = time.time()
+            
             
             log_data = (
                 new_obs,                # 0 obs
@@ -269,6 +283,7 @@ class OffPolicyBaseRunner:
             )
             
             self.logger.per_step(log_data)
+            
             
             next_obs = new_obs.copy()
             next_share_obs = new_share_obs.copy()
@@ -290,10 +305,15 @@ class OffPolicyBaseRunner:
                 else None,
             )
             self.insert(data)
+            
             obs = new_obs
             share_obs = new_share_obs
             available_actions = new_available_actions
+            logged_time_end = time.time()
+            
+            train_time = 0
             if step % self.algo_args["train"]["train_interval"] == 0:
+                train_time_start = time.time()
                 if self.algo_args["train"]["use_linear_lr_decay"]:
                     if self.share_param:
                         self.actor[0].lr_decay(step, steps)
@@ -314,9 +334,14 @@ class OffPolicyBaseRunner:
                         self.buffer,      # 可以直接传
                         self.buffer,      # logger只会用get_mean_rewards
                     )
+                train_time_end = time.time()
+                train_time = train_time_start - train_time_end
             
+            
+            eval_time = 0
+            save_time = 0
             if step % self.algo_args["train"]["eval_interval"] == 0:
-                
+                eval_time_start = time.time()
                 cur_step = (
                     self.algo_args["train"]["warmup_steps"]
                     + step * self.algo_args["train"]["n_rollout_threads"]
@@ -325,7 +350,19 @@ class OffPolicyBaseRunner:
                     print(
                         f"Env {self.args['env']} Task {self.task_name} Algo {self.args['algo']} Exp {self.args['exp_name']} Evaluation at step {cur_step} / {self.algo_args['train']['num_env_steps']}:"
                     )
-                    self.eval(cur_step)
+                    eval_return = self.eval(cur_step)
+                    if eval_return is not None:
+                        eval_avg_rew,eval_avg_len = eval_return
+                        end_flag = True
+                        for past_eval_avg_rew in self.eval_avg_rew_queue:
+                            if eval_avg_rew > past_eval_avg_rew:
+                                end_flag = False
+                        self.eval_avg_rew_queue.append(eval_avg_rew)
+                        if end_flag:
+                            self.end_flag_queue.append(end_flag)
+                        else:
+                            self.end_flag_queue = []
+                         
                 else:
                     print(
                         f"Env {self.args['env']} Task {self.task_name} Algo {self.args['algo']} Exp {self.args['exp_name']} Step {cur_step} / {self.algo_args['train']['num_env_steps']}, average step reward in buffer: {self.buffer.get_mean_rewards()}.\n"
@@ -342,8 +379,26 @@ class OffPolicyBaseRunner:
                         )
                         self.log_file.flush()
                         self.done_episodes_rewards = []
-                        
-                self.save()
+                eval_time_end = time.time()
+                self.save(step)
+                save_time_end = time.time()
+                eval_time = eval_time_start - eval_time_end
+                save_time = save_time_end - eval_time_end
+        
+            #if len(self.end_flag_queue)>2:
+            #    print(f"the model stop to improve at step: {step}, the training ended")
+            #    self.save()
+            #    break
+                
+
+            #print("rollout time: ", rollout_time_end-time_start)
+            #print("log time: ", logged_time_end-rollout_time_end)
+            #if train_time:
+                #print("train time: ", train_time)
+            #if eval_time:
+                #print("eval time: ", eval_time)
+                #print("save time: ", save_time)
+        
 
     def warmup(self):
         """Warmup the replay buffer with random actions"""
@@ -704,6 +759,7 @@ class OffPolicyBaseRunner:
                     "eval_average_episode_length", eval_avg_len, step
                 )
                 break
+        return eval_avg_rew,eval_avg_len
 
     @torch.no_grad()
     def render(self):
@@ -788,16 +844,28 @@ class OffPolicyBaseRunner:
                 )
                 self.value_normalizer.load_state_dict(value_normalizer_state_dict)
 
-    def save(self):
+    def save(self, step:str=""):
         """Save the model"""
+        step = str(step)
+        save_dir = copy.copy(self.save_dir)
+        if step:
+            save_dir = os.path.join(save_dir,step)
+            os.mkdir(save_dir)
+        if len(self.save_idx_buffer)>=self.save_total_limit and len(self.save_idx_buffer):
+            far_step = self.save_idx_buffer.popleft()
+            far_save_dir = os.path.join(self.save_dir,far_step)
+            shutil.rmtree(far_save_dir)
+        
         for agent_id in range(self.num_agents):
-            self.actor[agent_id].save(self.save_dir, agent_id)
-        self.critic.save(self.save_dir)
+            self.actor[agent_id].save(save_dir, agent_id)
+        self.critic.save(save_dir)
         if self.value_normalizer is not None:
             torch.save(
                 self.value_normalizer.state_dict(),
-                str(self.save_dir) + "/value_normalizer" + ".pt",
+                str(save_dir) + "/value_normalizer" + ".pt",
             )
+        if step:
+            self.save_idx_buffer.append(step)
 
     def close(self):
         """Close environment, writter, and log file."""

@@ -37,7 +37,7 @@
             "lr": 0.0005
         },
         "render": {
-            "render_episodes": 10,
+            "render_episodes": 3,
             "use_render": false
         },
         "seed": {

@@ -55,7 +55,7 @@
             "weight_decay": 0
         },
         "render": {
-            "render_episodes": 10,
+            "render_episodes": 3,
             "use_render": false
         },
         "seed": {

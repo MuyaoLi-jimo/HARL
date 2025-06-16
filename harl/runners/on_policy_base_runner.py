@@ -3,6 +3,7 @@
 import time
 import numpy as np
 import torch
+import os
 import setproctitle
 from harl.common.valuenorm import ValueNorm
 from harl.common.buffers.on_policy_actor_buffer import OnPolicyActorBuffer
@@ -44,6 +45,7 @@ class OnPolicyBaseRunner:
         self.state_type = env_args.get("state_type", "EP")
         self.share_param = algo_args["algo"]["share_param"]
         self.fixed_order = algo_args["algo"]["fixed_order"]
+        self.save_total_limit = algo_args["train"].get("save_total_limit",3)
         set_seed(algo_args["seed"])
         self.device = init_device(algo_args["device"])
         if not self.algo_args["render"]["use_render"]:  # train, not render
@@ -55,7 +57,7 @@ class OnPolicyBaseRunner:
                 algo_args["seed"]["seed"],
                 logger_path=algo_args["logger"]["log_dir"],
             )
-
+            self.render_dir = os.path.join(self.run_dir,"render")
             save_config(args, algo_args, env_args, self.run_dir)
         # set the title of the process
         setproctitle.setproctitle(

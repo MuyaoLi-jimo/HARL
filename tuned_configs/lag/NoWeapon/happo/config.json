@@ -52,8 +52,8 @@
             "weight_decay": 0
         },
         "render": {
-            "render_episodes": 10,
-            "use_render": false
+            "render_episodes": 3,
+            "use_render": true
         },
         "seed": {
             "seed": 1,
@@ -63,7 +63,7 @@
             "episode_length": 160,
             "eval_interval": 25,
             "log_interval": 5,
-            "model_dir": null,
+            "model_dir": "/home/lmy/workspace/HARL/results/lag/MultipleCombat-2v2/NoWeapon/vsBaseline/happo/installtest/seed-00001-2025-06-14-05-54-56/models",
             "n_rollout_threads": 100,
             "num_env_steps": 20000000,
             "use_linear_lr_decay": false,

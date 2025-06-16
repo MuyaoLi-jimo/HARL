@@ -21,7 +21,7 @@
             "torch_threads":	4
         },
         "eval":	{
-            "eval_episodes": 40,
+            "eval_episodes":	40,
             "n_eval_rollout_threads":	20,
             "use_eval":	true
         },
@@ -30,7 +30,7 @@
         },
         "model":	{
             "activation_func":	"relu",
-            "critic_lr":	0.0005,
+            "critic_lr":	0.0010,
             "final_activation_func":	"tanh",
             "gain":	0.01,
             "hidden_sizes":	[
@@ -38,7 +38,7 @@
                 256
             ],
             "initialization_method":	"orthogonal_",
-            "lr":	0.0003,
+            "lr":	0.0006,
             "use_feature_normalization":	true
         },
         "render":	{
@@ -66,13 +66,13 @@
     },
     "env_args": {
         "scenario": "MultipleCombat",
-        "task": "2v2/NoWeapon/vsBaseline",
+        "task": "2v2/ShootMissile/HierarchyVsBaseline",
         "state_type": "EP"
     },
     "main_args": {
         "algo": "hasac",
         "env": "lag",
-        "exp_name": "lag-hasac-no_weapon",
+        "exp_name": "lag-happo-shoot_missile",
         "load_config": ""
     }
 }
